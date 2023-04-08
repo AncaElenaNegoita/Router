@@ -1,0 +1,55 @@
+# Copyright Negoita Anca-Elena, 321CA, 2022-2023
+
+# Router
+-----------------------------------------------------------------------------------------
+
+    This project involves implementing a process for directing packets through a router,
+specifically by using a router's dataplane. The following elements have been implemented:
+- ARP protocol
+- Directing process
+- Longest Prefix Match (LPM) efficiency using Binary Search
+- ICMP protocol
+
+    The main idea behind this implementation involves reading the routing table of the
+router and initializing the cache for MACs (arp_table). When the router receives a packet,
+it first extracts the Ethernet header and checks if:
+- The packet's destination MAC is the MAC of the router (from the interface on which the
+packet was received).
+- The packet was received following a broadcast (destination MAC address is
+FF:FF:FF:FF:FF / 255:255:255:255:255).
+If the packet doesn't fit either of these options, it's thrown away.
+    Next, the type of the ethernet header is checked. It can be either IPv4
+(ether_type = 0x0800 / ETHERTYPE_IP) or ARP (ether_type = 0x0806 / ETHERTYPE_ARP).
+If it's any other type, the packet is thrown away.
+
+If the packet is an IPv4 one:
+- The IP address of the recipient is checked to see if it the same as the address of
+the router (verify if it is for us). If the router is the recipient(ICMP Echo Request),
+an ICMP Echo Reply is sent and the destination and source addresses are swapped.
+- If the router is not the recipient, it means that the packet needs to be sent further.
+The checksum is checked against the one received through the header. If it's not good,
+the packet is thrown away. If the TTL of the packet is below 2, an ICMP error message
+(Time Exceeded) is sent and a new packet is formed using the new headers, the ICMP headers
+and the previous IP header followed by 8 bytes of data from the old packet.
+If the packet passes these two checks, the TTL is decremented, and the checksum is
+recalculated for the new TTL.
+- The best route is then searched for in the routing table so that the packet can be
+routed. If there is no route, an ICMP error message (Destination unreachable) is sent.
+If there is a route, the MAC is searched in the ARP table of the router, using the next
+hop for the packet found in the route table. If the MAC is found, the packet is sent
+normally. If the MAC is not found, it's pushed in a "waiting queue" until the router
+finds the MAC address of the next point using the ARP request.
+
+If the packet is an ARP:
+- If the packet type is ARP Request (operation code = 1), and the router is the recipient
+(tpa in the ICMP header is the IP address of the router), a response must be sent
+(an ARP Replay).
+- If the received packet type is ARP Reply (operation code = 2), then the
+router has finally received a response for the request it made. The MAC address that needs
+to be searched for is extracted from the received response's ARP header. The received
+IP-MAC pair is then put in the ARP table. Each packet from the queue is now verified if
+the destination is now found in the table and the packets that respect this condition are
+sent away. If not, they are put back in the queue.
+- If the router isn't the recipient, then the packet goes in the same steps as in IPv4:
+it searches for a route table entry and then in the ARP table. If a match is found, the
+message is sent away, else, it's dropped.
